@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    paths: ['**.rs', '**.toml', '**/rust.yml']
+  pull_request:
+    paths: ['**.rs', '**.toml', '**/rust.yml']
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  ubuntu:
+    name: full check on ubuntu (${{ matrix.toolchain }} channel)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain: [stable, beta, nightly]
+    steps:
+      - uses: actions/checkout@v4
+      - name: switch to ${{ matrix.toolchain }} channel and download mold
+        run: |
+          rustup update ${{ matrix.toolchain }} && rustup default ${{ matrix.toolchain }}
+          rustup component add rustfmt clippy
+          sudo apt-get update && sudo apt-get install mold
+      - name: build
+        run: mold -run cargo b -v --profile testing
+      - name: fmt and clippy check
+        if: ${{ matrix.toolchain == 'nightly' }}
+        run: cargo fmt -- --check && mold -run cargo clippy --profile testing -- -D warnings
+      - name: test
+        run: mold -run cargo t -v --profile testing
+
+  msys2:
+    name: full check on windows (msys2 - ${{ matrix.sys }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { sys: CLANG64, prefix: clang64 }
+          - { sys: UCRT64, prefix: ucrt64 }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          update: true
+          msystem: ${{ matrix.sys }}
+          location: 'D:\M'
+          pacboy: rust:p
+      - name: hack rustup
+        run: |
+          rustup toolchain link msys2 D:\M\msys64\${{ matrix.prefix }}
+          rustup default msys2
+      - name: build
+        run: msys2 -c 'cargo b -v --profile testing'
+      - name: clippy
+        run: msys2 -c 'cargo clippy --profile testing -- -D warnings'
+      - name: test
+        run: msys2 -c 'cargo t -v --profile testing'
